@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Anon Messenger (VK-Tunnel)</title>
+    <style>
+        body { margin: 0; padding: 20px; font-family: sans-serif; background: #1a1a1a; color: #fff; }
+        .container { max-width: 600px; margin: 0 auto; display: flex; flex-direction: column; height: 90vh; }
+        input, button { padding: 12px; border-radius: 8px; border: 1px solid #444; background: #2a2a2a; color: #fff; font-size: 16px; margin-bottom: 10px; }
+        button { background: #2688eb; cursor: pointer; border: none; font-weight: bold; }
+        #chat { flex: 1; border: 1px solid #444; border-radius: 12px; background: #111; padding: 15px; overflow-y: auto; margin-bottom: 10px; }
+        .msg { background: #222; padding: 10px; border-radius: 8px; margin-bottom: 8px; word-break: break-word; }
+        .input-row { display: flex; gap: 10px; }
+        .input-row input { flex: 1; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div style="display: flex; gap: 10px;">
+        <input type="text" id="username" placeholder="Твой ник" style="flex: 1;">
+        <button onclick="changeName()">Сохранить ник</button>
+    </div>
+    
+    <div style="color: #2688eb; font-weight: bold; margin-bottom: 10px;">🌐 Анонимный канал (Глобальная сеть)</div>
+    <div id="chat"></div>
+    
+    <div class="input-row">
+        <input type="text" id="msgText" placeholder="Напишите анонимное сообщение..." onkeydown="if(event.key==='Enter') sendMsg()">
+        <button onclick="sendMsg()">➡️</button>
+    </div>
+</div>
+
+<script>
+    // Твои боевые данные ВК
+    const VK_TOKEN = "vk1.a.pbAZPA8rcxAXOwtANF4CX4OOYj81RiEFvlOuXy_vGY2D8xEcHcKRBEJSbTRj60XJh9Bo6W0ss564Ixvemw_zgeQulm3UHtBglz1ipYaJwY_LCK_5NJqBX_m9ot7SX-6SKqtzTjYH5LdLfaq3VQXFEkR3rynvibeBidN2QWYGvVymfbQAhuDNEq-c5rk56zgsPiFiEBwsp1H2P0TO7urgJw";
+    const GROUP_ID = "242092506";
+    
+    // Ставим случайный ник при входе
+    let myName = "Аноним_" + Math.floor(1000 + Math.random() * 9000);
+    document.getElementById('username').value = myName;
+
+    function changeName() {
+        myName = document.getElementById('username').value;
+        alert("Ник изменен на: " + myName);
+    }
+
+    // Функция отправки текста в ВК туннель
+    function sendMsg() {
+        const input = document.getElementById('msgText');
+        if (!input.value) return;
+
+        const fullText = `📢 [${myName}]: ${input.value}`;
+        const randomId = Math.floor(Math.random() * 10000000);
+        
+        // Отправляем прямой запрос к API ВКонтакте через JSONP (чтобы не блокировал браузер)
+        const script = document.createElement('script');
+        script.src = `https://vk.com{GROUP_ID}&message=${encodeURIComponent(fullText)}&random_id=${randomId}&access_token=${VK_TOKEN}&v=5.131&callback=onSendSuccess`;
+        document.body.appendChild(script);
+        
+        input.value = '';
+    }
+
+    function onSendSuccess(response) {
+        // Технический колбэк для ВК
+    }
+
+    // Запуск прослушки сообщений через Long Poll ВК
+    async function startListening() {
+        try {
+            // 1. Получаем данные сервера Long Poll
+            const serverRes = await fetchJsonp(`https://vk.com{GROUP_ID}&access_token=${VK_TOKEN}&v=5.131`);
+            let { server, key, ts } = serverRes.response;
+
+            // 2. Бесконечный цикл прослушки
+            while (true) {
+                const lpRes = await fetchJsonp(`${server}?act=a_check&key=${key}&ts=${ts}&wait=25&mode=2`);
+                ts = lpRes.ts;
+
+                if (lpRes.updates) {
+                    for (let update of lpRes.updates) {
+                        // Если пришло новое сообщение
+                        if (update.type === 'message_new') {
+                            const text = update.object.message.text;
+                            const chat = document.getElementById('chat');
+                            
+                            const msgDiv = document.createElement('div');
+                            msgDiv.className = 'msg';
+                            msgDiv.innerText = text;
+                            chat.appendChild(msgDiv);
+                            chat.scrollTop = chat.scrollHeight; // Прокрутка вниз
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            console.error("Ошибка сети ВК:", e);
+            setTimeout(startListening, 3000); // Переподключение при ошибке
+        }
+    }
+
+    // Вспомогательная функция для обхода ограничений безопасности браузера
+    function fetchJsonp(url) {
+        return new Promise((resolve) => {
+            const callbackName = 'jsonp_' + Math.floor(Math.random() * 100000);
+            window[callbackName] = (data) => {
+                resolve(data);
+                document.body.removeChild(script);
+                delete window[callbackName];
+            };
+            const script = document.createElement('script');
+            script.src = url + (url.includes('?') ? '&' : '?') + `callback=${callbackName}`;
+            document.body.appendChild(script);
+        });
+    }
+
+    // Включаем радар сообщений
+    startListening();
+</script>
+</body>
+</html>
+
